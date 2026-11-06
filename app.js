@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.0.0';
+  var VERSION = '1.0.2';
   var STORE_KEY = 'ringtimer.cfg.v1';
 
   /* ================================================================
@@ -51,6 +51,7 @@
     sound: 'gong',     // gong / taiko / both
     voice: true,       // ラウンドコール
     shout: 'fight',    // none / fight / box / hajime
+    voiceName: '',     // TTSの声の名前 (空なら男性の声を自動選択)
     vol: 0.9
   };
 
@@ -130,8 +131,44 @@
       return ctx;
     }
 
+    /* --- 消音スイッチ対策 ---
+     * iOS の Web Audio は消音スイッチがONだと無音になる。
+     * 無音の <audio> をループ再生しておくと「メディア再生」扱いになり、スイッチに関係なく鳴る。
+     */
+    var keepEl = null;
+
+    function silentWavURI() {
+      var n = 8000, bytes = [], i;
+      function w32(v) { bytes.push(v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >> 24) & 255); }
+      function w16(v) { bytes.push(v & 255, (v >> 8) & 255); }
+      function ws(s) { for (var k = 0; k < s.length; k++) { bytes.push(s.charCodeAt(k)); } }
+      ws('RIFF'); w32(36 + n); ws('WAVE'); ws('fmt '); w32(16);
+      w16(1); w16(1); w32(8000); w32(8000); w16(1); w16(8);
+      ws('data'); w32(n);
+      for (i = 0; i < n; i++) { bytes.push(128); }   // 8bit PCM の無音は 128
+      var s = '';
+      for (i = 0; i < bytes.length; i++) { s += String.fromCharCode(bytes[i]); }
+      return 'data:audio/wav;base64,' + btoa(s);
+    }
+
+    function keepAlive() {
+      try { if (navigator.audioSession) { navigator.audioSession.type = 'playback'; } } catch (e) {}
+      try {
+        if (!keepEl) {
+          keepEl = document.createElement('audio');
+          keepEl.src = silentWavURI();
+          keepEl.loop = true;
+          keepEl.setAttribute('playsinline', '');
+          keepEl.setAttribute('webkit-playsinline', '');
+        }
+        var p = keepEl.play();
+        if (p && p.catch) { p.catch(function () {}); }
+      } catch (e2) {}
+    }
+
     /* iOS は最初のタップ内で音を鳴らさないと以後ずっと無音になる */
     function unlock() {
+      keepAlive();
       var c = ensure();
       if (c) {
         try {
@@ -155,6 +192,12 @@
 
     function resumeCtx() {
       if (ctx && ctx.state === 'suspended' && ctx.resume) { try { ctx.resume(); } catch (e) {} }
+      try {
+        if (keepEl && keepEl.paused) {
+          var p = keepEl.play();
+          if (p && p.catch) { p.catch(function () {}); }
+        }
+      } catch (e2) {}
     }
 
     function setVol(v) { if (master) { master.gain.value = v; } }
@@ -299,13 +342,50 @@
     }
 
     /* --- 声: 録音ファイルがあればそれ、無ければ TTS --- */
+    /* 端末に入っている日本語の声を集める */
+    var jaVoices = [];
+    var MALE_RE = /otoya|hattori|ichiro|keita|takumi|ryo|kenji|shin/i;
+
+    function refreshVoices() {
+      try {
+        var all = window.speechSynthesis.getVoices() || [];
+        jaVoices = [];
+        for (var i = 0; i < all.length; i++) {
+          if (/^ja/i.test(String(all[i].lang).replace('_', '-'))) { jaVoices.push(all[i]); }
+        }
+      } catch (e) {}
+    }
+
+    function voiceNames() {
+      refreshVoices();
+      var out = [];
+      for (var i = 0; i < jaVoices.length; i++) { out.push(jaVoices[i].name); }
+      return out;
+    }
+
+    /* 設定で選んだ声 → 無ければ男性っぽい名前の声 → 無ければ端末の既定 */
+    function pickVoice() {
+      if (!jaVoices.length) { refreshVoices(); }
+      var i;
+      if (cfg.voiceName) {
+        for (i = 0; i < jaVoices.length; i++) {
+          if (jaVoices[i].name === cfg.voiceName) { return jaVoices[i]; }
+        }
+      }
+      for (i = 0; i < jaVoices.length; i++) {
+        if (MALE_RE.test(jaVoices[i].name)) { return jaVoices[i]; }
+      }
+      return null;
+    }
+
     function tts(text) {
       try {
         if (!window.speechSynthesis) { return; }
         var u = new SpeechSynthesisUtterance(text);
-        u.lang = 'ja-JP';
+        var v = pickVoice();
+        if (v) { u.voice = v; u.lang = v.lang; } else { u.lang = 'ja-JP'; }
         u.rate = 0.9;
-        u.pitch = 0.6;
+        u.pitch = 0.7;
         u.volume = cfg.vol;
         window.speechSynthesis.speak(u);
       } catch (e) {}
@@ -324,7 +404,8 @@
 
     return {
       unlock: unlock, resumeCtx: resumeCtx, setVol: setVol, preload: preload,
-      pattern: pattern, hit: hit, clap: clap, beep: beep, say: say, cancelSpeech: cancelSpeech
+      pattern: pattern, hit: hit, clap: clap, beep: beep, say: say, cancelSpeech: cancelSpeech,
+      voiceNames: voiceNames, refreshVoices: refreshVoices
     };
   })();
 
@@ -418,9 +499,13 @@
     try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) {}
   }
 
+  /* TTSに数字を渡すと「ラウンドいち」と読むので、英語風にカタカナで渡す */
+  var ROUND_WORDS = ['', 'ワン', 'ツー', 'スリー', 'フォー', 'ファイブ', 'シックス',
+                     'セブン', 'エイト', 'ナイン', 'テン', 'イレブン', 'トゥエルブ'];
+
   function roundCallText(n) {
     if (n === cfg.rounds && n > 1) { return { key: 'final', text: 'ファイナルラウンド' }; }
-    return { key: 'r' + n, text: 'ラウンド' + n };
+    return { key: 'r' + n, text: 'ラウンド ' + (ROUND_WORDS[n] || n) };
   }
 
   function shoutStart() {
@@ -664,6 +749,7 @@
     { k: 'sound',   label: '合図の音',       kind: 'seg',
       opts: [['gong', 'ゴング'], ['taiko', '太鼓'], ['both', '両方']] },
     { k: 'voice',   label: 'ラウンドコール', kind: 'toggle' },
+    { k: 'voiceName', label: '声の種類(仮の読み上げ)', kind: 'voicepick', stack: true },
     { k: 'shout',   label: 'かけ声',         kind: 'seg', stack: true,
       opts: [['none', 'なし'], ['fight', 'ファイト'], ['box', 'ボックス'], ['hajime', '始め/やめ']] },
     { k: 'vol',     label: '音量',           kind: 'range' }
@@ -754,6 +840,23 @@
           p[1].className = 'segopt' + (cfg[row.k] === p[0] ? ' sel' : '');
         });
       });
+    } else if (row.kind === 'voicepick') {
+      var vb = h('button', 'chip', '');
+      vb.addEventListener('click', function () {
+        AudioEngine.unlock();
+        var list = [''].concat(AudioEngine.voiceNames());
+        var at = list.indexOf(cfg.voiceName);
+        cfg.voiceName = list[(at + 1) % list.length];
+        onCfgChanged();
+        refreshSheet();
+        AudioEngine.cancelSpeech();
+        var rc = roundCallText(1);
+        AudioEngine.say(rc.key, rc.text);
+      }, false);
+      ctl.appendChild(vb);
+      updaters.push(function () {
+        vb.textContent = (cfg.voiceName || '自動(男性の声を優先)') + '　▶ タップで切替';
+      });
     } else if (row.kind === 'range') {
       var inp = document.createElement('input');
       inp.type = 'range';
@@ -806,7 +909,7 @@
       ['ゴング', function () { AudioEngine.hit('gong', 0); }],
       ['太鼓', function () { AudioEngine.hit('taiko', 0); }],
       ['拍子木', function () { AudioEngine.clap(); }],
-      ['ラウンドコール', function () { AudioEngine.say('r1', 'ラウンド1'); }],
+      ['ラウンドコール', function () { var rc = roundCallText(1); AudioEngine.say(rc.key, rc.text); }],
       ['かけ声', function () { shoutStart(); }]
     ].forEach(function (t) {
       var b = h('button', 'chip', t[0]);
@@ -817,7 +920,7 @@
 
     host.appendChild(h('div', 'note',
       'Ver ' + VERSION + '\n' +
-      '・音が出ないときは、iPhone横の消音スイッチをOFFにしてください。\n' +
+      '・消音スイッチがONでも鳴る作りですが、音が出ないときはスイッチをOFFにしてみてください。\n' +
       '・使用中は 設定 > 画面表示と明るさ > 自動ロック を「しない」にしてください。\n' +
       '・録音した声や音は audio フォルダに置くと自動で使われます。'));
     host.lastChild.style.whiteSpace = 'pre-line';
@@ -866,6 +969,12 @@
     }, false);
 
     AudioEngine.preload();
+    AudioEngine.refreshVoices();
+    try {
+      if (window.speechSynthesis) {
+        window.speechSynthesis.onvoiceschanged = function () { AudioEngine.refreshVoices(); };
+      }
+    } catch (e) {}
     render();
     updateButtons();
 
