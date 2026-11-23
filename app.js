@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.0';
+  var VERSION = '1.1.1';
   var STORE_KEY = 'ringtimer.cfg.v1';
 
   /* ================================================================
@@ -13,8 +13,9 @@
    * ================================================================ */
   var CONFIG = {
     startStrikes: 1,                              // ラウンド開始時に鳴らす回数
-    endStrikes: 3,                                // ラウンド終了時に鳴らす回数
-    gap: { gong: 0.75, taiko: 0.45, both: 0.75 }, // 連打の間隔(秒)
+    endStrikes: 2,                                // 終了音(gong2/taiko2)が無いときの代用: 鳴らす回数 (カンカン / ドドン)
+    gap: { gong: 0.75, taiko: 0.45, both: 0.75 }, // 開始音の連打の間隔(秒)
+    endGap: { gong: 0.5, taiko: 0.35, both: 0.5 },// 終了音の代用の連打の間隔(秒)
     callLead: 3,                                  // 「ラウンド○」を言い始める、休憩終了の何秒前か
     fightDelay: 0.6,                              // ゴングの何秒後に「ファイト」を言うか
     tickMs: 50
@@ -338,7 +339,7 @@
      */
     function endSound() {
       var kinds = soundKinds();
-      var gap = CONFIG.gap[cfg.sound];
+      var gap = CONFIG.endGap[cfg.sound];
       var c = ensure();
       for (var j = 0; j < kinds.length; j++) {
         var k2 = kinds[j] + '2';
