@@ -3,7 +3,7 @@
  * audio/ 以下の録音ファイルも一度読み込めば自動でキャッシュされる。
  * アプリを大きく変えたときは CACHE の番号を上げると古いキャッシュが消える。
  */
-var CACHE = 'ring-timer-v1.0.2';
+var CACHE = 'ring-timer-v1.1.0';
 var CORE = [
   './',
   'index.html',
@@ -15,10 +15,20 @@ var CORE = [
   'icon-512.png'
 ];
 
+/* 録音/効果音ファイル。無いものがあっても失敗しないよう、1つずつ「あれば保存」する */
+var AUDIO = ['gong', 'gong2', 'taiko', 'taiko2', 'clap', 'final', 'fight', 'box', 'hajime', 'yame'];
+for (var n = 1; n <= 12; n++) { AUDIO.push('r' + n); }
+
 self.addEventListener('install', function (e) {
   e.waitUntil(
     caches.open(CACHE)
-      .then(function (c) { return c.addAll(CORE); })
+      .then(function (c) {
+        return c.addAll(CORE).then(function () {
+          return Promise.all(AUDIO.map(function (k) {
+            return c.add('audio/' + k + '.mp3').catch(function () {});
+          }));
+        });
+      })
       .then(function () { return self.skipWaiting(); })
   );
 });

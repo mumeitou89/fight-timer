@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.0.2';
+  var VERSION = '1.1.0';
   var STORE_KEY = 'ringtimer.cfg.v1';
 
   /* ================================================================
@@ -21,11 +21,13 @@
   };
 
   /* 録音ファイルを audio/ に置くと、合成音/TTS の代わりに自動で使われる
-   *   audio/gong.mp3 taiko.mp3 clap.mp3
+   *   audio/gong.mp3 taiko.mp3   (ラウンド開始の合図)
+   *   audio/gong2.mp3 taiko2.mp3 (ラウンド終了の合図。1ファイルをそのまま1回鳴らす)
+   *   audio/clap.mp3             (拍子木)
    *   audio/r1.mp3 ... r12.mp3 (ラウンドコール) final.mp3 (ファイナルラウンド)
    *   audio/fight.mp3 box.mp3 hajime.mp3 yame.mp3
    */
-  var AUDIO_KEYS = ['gong', 'taiko', 'clap', 'final', 'fight', 'box', 'hajime', 'yame'];
+  var AUDIO_KEYS = ['gong', 'gong2', 'taiko', 'taiko2', 'clap', 'final', 'fight', 'box', 'hajime', 'yame'];
   (function () { for (var n = 1; n <= 12; n++) { AUDIO_KEYS.push('r' + n); } })();
 
   var SHOUTS = {
@@ -317,12 +319,35 @@
       else { taikoSynth(t); }
     }
 
-    /* n回連打 (設定が「両方」ならゴングと太鼓を同時に) */
-    function pattern(n) {
-      var kinds = cfg.sound === 'both' ? ['gong', 'taiko'] : [cfg.sound];
+    function soundKinds() {
+      return cfg.sound === 'both' ? ['gong', 'taiko'] : [cfg.sound];
+    }
+
+    /* ラウンド開始の合図 (設定が「両方」ならゴングと太鼓を同時に) */
+    function startSound() {
+      var kinds = soundKinds();
       var gap = CONFIG.gap[cfg.sound];
-      for (var i = 0; i < n; i++) {
+      for (var i = 0; i < CONFIG.startStrikes; i++) {
         for (var j = 0; j < kinds.length; j++) { hit(kinds[j], i * gap); }
+      }
+    }
+
+    /* ラウンド終了の合図
+     * audio/gong2.mp3 / taiko2.mp3 があれば、それを1回そのまま鳴らす (録音側で複数回打ってある前提)。
+     * 無いときは、合成音を endStrikes 回連打する。
+     */
+    function endSound() {
+      var kinds = soundKinds();
+      var gap = CONFIG.gap[cfg.sound];
+      var c = ensure();
+      for (var j = 0; j < kinds.length; j++) {
+        var k2 = kinds[j] + '2';
+        if (c && buffers[k2]) {
+          trace('end:' + k2);
+          playBuf(k2, c.currentTime + 0.02, 1);
+        } else {
+          for (var i = 0; i < CONFIG.endStrikes; i++) { hit(kinds[j], i * gap); }
+        }
       }
     }
 
@@ -404,7 +429,7 @@
 
     return {
       unlock: unlock, resumeCtx: resumeCtx, setVol: setVol, preload: preload,
-      pattern: pattern, hit: hit, clap: clap, beep: beep, say: say, cancelSpeech: cancelSpeech,
+      startSound: startSound, endSound: endSound, hit: hit, clap: clap, beep: beep, say: say, cancelSpeech: cancelSpeech,
       voiceNames: voiceNames, refreshVoices: refreshVoices
     };
   })();
@@ -526,9 +551,9 @@
   /* セグメントに入った瞬間の音 */
   function enterSound(seg) {
     if (seg.type === 'round') {
-      AudioEngine.pattern(CONFIG.startStrikes);
+      AudioEngine.startSound();
     } else if (seg.type === 'rest') {
-      AudioEngine.pattern(CONFIG.endStrikes);
+      AudioEngine.endSound();
       shoutEnd();
     }
   }
@@ -570,7 +595,7 @@
     stopTimer();
     releaseWake();
     if (playSound) {
-      AudioEngine.pattern(CONFIG.endStrikes);
+      AudioEngine.endSound();
       shoutEnd();
     }
     render();
@@ -906,8 +931,8 @@
     host.appendChild(h('div', 'sec-title', '音を試す'));
     var tests = h('div', 'tests');
     [
-      ['ゴング', function () { AudioEngine.hit('gong', 0); }],
-      ['太鼓', function () { AudioEngine.hit('taiko', 0); }],
+      ['開始の合図', function () { AudioEngine.startSound(); }],
+      ['終了の合図', function () { AudioEngine.endSound(); }],
       ['拍子木', function () { AudioEngine.clap(); }],
       ['ラウンドコール', function () { var rc = roundCallText(1); AudioEngine.say(rc.key, rc.text); }],
       ['かけ声', function () { shoutStart(); }]
