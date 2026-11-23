@@ -43,7 +43,7 @@ Boxing Timer G 風のインターバルタイマー(PWA)。iPhone 6 (iOS 12) の
 |---|---|
 | `gong.mp3` `taiko.mp3` | ラウンド**開始**の合図 |
 | `gong2.mp3` `taiko2.mp3` | **試合終了**(最後のラウンド終了)の合図。1ファイルをそのまま1回鳴らす |
-| (各ラウンド終了) | `gong` を2回「カンカン」/ `taiko` を2回「ドドン」。専用ファイルは不要 |
+| (各ラウンド終了) | `gong` を「カンカン」/ `taiko` を「ドドン」(軽く速い2打→強い1打)。専用ファイルは不要。打ち方は `app.js` の `CONFIG.endPattern` |
 | `clap.mp3` | 残り10秒の拍子木 (2回打つ音ならそのまま使える) |
 | `r1.mp3` ... `r12.mp3` | 「ラウンド1」...「ラウンド12」 |
 | `final.mp3` | 「ファイナルラウンド」 |
@@ -53,7 +53,7 @@ Boxing Timer G 風のインターバルタイマー(PWA)。iPhone 6 (iOS 12) の
 mp3形式で。ファイルを足したら `sw.js` の `CACHE` の番号を上げておくと確実。
 
 - `gong2` / `taiko2` が無いときは、試合終了も `gong` / `taiko` を3回連打して代用する
-- 打つ回数と間隔は `app.js` の `CONFIG` (`endStrikes` / `matchEndStrikes` / `endGap`) で変えられる
+- 打ち方は `app.js` の `CONFIG` (`endPattern` / `matchEndStrikes` / `endGap`) で変えられる
 - 同梱の音源は、5つの音量を同じくらい(約 -16 LUFS)にそろえてある
 - 使った音源のサイト名とライセンス(クレジット要否)は、ここに控えておくこと:
   - (未記入)

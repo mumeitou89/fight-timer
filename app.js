@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.2';
+  var VERSION = '1.1.3';
   var STORE_KEY = 'ringtimer.cfg.v1';
 
   /* ================================================================
@@ -13,7 +13,13 @@
    * ================================================================ */
   var CONFIG = {
     startStrikes: 1,                              // ラウンド開始時に鳴らす回数
-    endStrikes: 2,                                // 各ラウンド終了: gong/taiko を何回打つか (カンカン / ドドン)
+    /* 各ラウンド終了の打ち方: [開始からの秒数, 音量(0〜1)] を並べる
+     *   gong  = カンカン (2回)
+     *   taiko = ドドン  (軽く速い2打 → 少し間をおいて強い1打)。間隔や音量はここをいじって調整 */
+    endPattern: {
+      gong:  [[0, 1], [0.5, 1]],
+      taiko: [[0, 0.7], [0.16, 0.7], [0.42, 1]]
+    },
     matchEndStrikes: 3,                           // 試合終了: gong2/taiko2 が無いときの代用の回数
     gap: { gong: 0.75, taiko: 0.45, both: 0.75 }, // 開始音の連打の間隔(秒)
     endGap: { gong: 0.5, taiko: 0.35, both: 0.5 },// 終了音(各ラウンド終了/代用)の連打の間隔(秒)
@@ -312,12 +318,12 @@
       }
     }
 
-    function hit(kind, off) {
-      trace('hit:' + kind + '@' + off.toFixed(2));
+    function hit(kind, off, gain) {
+      trace('hit:' + kind + '@' + off.toFixed(2) + (gain && gain !== 1 ? ' x' + gain : ''));
       var c = ensure();
       if (!c) { return; }
       var t = c.currentTime + off + 0.02;
-      if (buffers[kind]) { playBuf(kind, t, 1); }
+      if (buffers[kind]) { playBuf(kind, t, gain || 1); }
       else if (kind === 'gong') { gongSynth(t); }
       else { taikoSynth(t); }
     }
@@ -349,9 +355,11 @@
         if (isFinal && c && buffers[k2]) {
           trace('end:' + k2);
           playBuf(k2, c.currentTime + 0.02, 1);
+        } else if (isFinal) {
+          for (var i = 0; i < CONFIG.matchEndStrikes; i++) { hit(kinds[j], i * gap); }
         } else {
-          var n = isFinal ? CONFIG.matchEndStrikes : CONFIG.endStrikes;
-          for (var i = 0; i < n; i++) { hit(kinds[j], i * gap); }
+          var pat = CONFIG.endPattern[kinds[j]];
+          for (var p = 0; p < pat.length; p++) { hit(kinds[j], pat[p][0], pat[p][1]); }
         }
       }
     }

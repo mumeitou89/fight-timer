@@ -3,7 +3,7 @@
  * audio/ 以下の録音ファイルも一度読み込めば自動でキャッシュされる。
  * アプリを大きく変えたときは CACHE の番号を上げると古いキャッシュが消える。
  */
-var CACHE = 'ring-timer-v1.1.2';
+var CACHE = 'ring-timer-v1.1.3';
 var CORE = [
   './',
   'index.html',
