@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.1';
+  var VERSION = '1.1.2';
   var STORE_KEY = 'ringtimer.cfg.v1';
 
   /* ================================================================
@@ -13,9 +13,10 @@
    * ================================================================ */
   var CONFIG = {
     startStrikes: 1,                              // ラウンド開始時に鳴らす回数
-    endStrikes: 2,                                // 終了音(gong2/taiko2)が無いときの代用: 鳴らす回数 (カンカン / ドドン)
+    endStrikes: 2,                                // 各ラウンド終了: gong/taiko を何回打つか (カンカン / ドドン)
+    matchEndStrikes: 3,                           // 試合終了: gong2/taiko2 が無いときの代用の回数
     gap: { gong: 0.75, taiko: 0.45, both: 0.75 }, // 開始音の連打の間隔(秒)
-    endGap: { gong: 0.5, taiko: 0.35, both: 0.5 },// 終了音の代用の連打の間隔(秒)
+    endGap: { gong: 0.5, taiko: 0.35, both: 0.5 },// 終了音(各ラウンド終了/代用)の連打の間隔(秒)
     callLead: 3,                                  // 「ラウンド○」を言い始める、休憩終了の何秒前か
     fightDelay: 0.6,                              // ゴングの何秒後に「ファイト」を言うか
     tickMs: 50
@@ -23,7 +24,8 @@
 
   /* 録音ファイルを audio/ に置くと、合成音/TTS の代わりに自動で使われる
    *   audio/gong.mp3 taiko.mp3   (ラウンド開始の合図)
-   *   audio/gong2.mp3 taiko2.mp3 (ラウンド終了の合図。1ファイルをそのまま1回鳴らす)
+   *   (各ラウンド終了は gong を2回「カンカン」/ taiko を2回「ドドン」)
+   *   audio/gong2.mp3 taiko2.mp3 (試合終了=最後のラウンド終了の合図。1ファイルをそのまま1回鳴らす)
    *   audio/clap.mp3             (拍子木)
    *   audio/r1.mp3 ... r12.mp3 (ラウンドコール) final.mp3 (ファイナルラウンド)
    *   audio/fight.mp3 box.mp3 hajime.mp3 yame.mp3
@@ -333,21 +335,23 @@
       }
     }
 
-    /* ラウンド終了の合図
-     * audio/gong2.mp3 / taiko2.mp3 があれば、それを1回そのまま鳴らす (録音側で複数回打ってある前提)。
-     * 無いときは、合成音を endStrikes 回連打する。
+    /* 終了の合図
+     *  isFinal = false … 各ラウンド終了: gong を2回「カンカン」/ taiko を2回「ドドン」
+     *  isFinal = true  … 試合終了(最後のラウンド終了): audio/gong2.mp3 / taiko2.mp3 を1回そのまま鳴らす。
+     *                    無いときは gong/taiko を matchEndStrikes 回連打して代用。
      */
-    function endSound() {
+    function endSound(isFinal) {
       var kinds = soundKinds();
       var gap = CONFIG.endGap[cfg.sound];
       var c = ensure();
       for (var j = 0; j < kinds.length; j++) {
         var k2 = kinds[j] + '2';
-        if (c && buffers[k2]) {
+        if (isFinal && c && buffers[k2]) {
           trace('end:' + k2);
           playBuf(k2, c.currentTime + 0.02, 1);
         } else {
-          for (var i = 0; i < CONFIG.endStrikes; i++) { hit(kinds[j], i * gap); }
+          var n = isFinal ? CONFIG.matchEndStrikes : CONFIG.endStrikes;
+          for (var i = 0; i < n; i++) { hit(kinds[j], i * gap); }
         }
       }
     }
@@ -554,7 +558,7 @@
     if (seg.type === 'round') {
       AudioEngine.startSound();
     } else if (seg.type === 'rest') {
-      AudioEngine.endSound();
+      AudioEngine.endSound(false);
       shoutEnd();
     }
   }
@@ -596,7 +600,7 @@
     stopTimer();
     releaseWake();
     if (playSound) {
-      AudioEngine.endSound();
+      AudioEngine.endSound(true);
       shoutEnd();
     }
     render();
@@ -933,7 +937,8 @@
     var tests = h('div', 'tests');
     [
       ['開始の合図', function () { AudioEngine.startSound(); }],
-      ['終了の合図', function () { AudioEngine.endSound(); }],
+      ['ラウンド終了', function () { AudioEngine.endSound(false); }],
+      ['試合終了', function () { AudioEngine.endSound(true); }],
       ['拍子木', function () { AudioEngine.clap(); }],
       ['ラウンドコール', function () { var rc = roundCallText(1); AudioEngine.say(rc.key, rc.text); }],
       ['かけ声', function () { shoutStart(); }]
