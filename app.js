@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.1.3';
+  var VERSION = '1.2.0';
   var STORE_KEY = 'ringtimer.cfg.v1';
 
   /* ================================================================
@@ -15,10 +15,10 @@
     startStrikes: 1,                              // ラウンド開始時に鳴らす回数
     /* 各ラウンド終了の打ち方: [開始からの秒数, 音量(0〜1)] を並べる
      *   gong  = カンカン (2回)
-     *   taiko = ドドン  (軽く速い2打 → 少し間をおいて強い1打)。間隔や音量はここをいじって調整 */
+     *   taiko = ドドン  (軽い1打 → すぐ強い1打の2回)。間隔や音量はここをいじって調整 */
     endPattern: {
       gong:  [[0, 1], [0.5, 1]],
-      taiko: [[0, 0.7], [0.16, 0.7], [0.42, 1]]
+      taiko: [[0, 0.7], [0.2, 1]]
     },
     matchEndStrikes: 3,                           // 試合終了: gong2/taiko2 が無いときの代用の回数
     gap: { gong: 0.75, taiko: 0.45, both: 0.75 }, // 開始音の連打の間隔(秒)
@@ -36,7 +36,7 @@
    *   audio/r1.mp3 ... r12.mp3 (ラウンドコール) final.mp3 (ファイナルラウンド)
    *   audio/fight.mp3 box.mp3 hajime.mp3 yame.mp3
    */
-  var AUDIO_KEYS = ['gong', 'gong2', 'taiko', 'taiko2', 'clap', 'final', 'fight', 'box', 'hajime', 'yame'];
+  var AUDIO_KEYS = ['gong', 'gong2', 'taiko', 'taiko2', 'clap', 'buzzer', 'final', 'fight', 'box', 'hajime', 'yame'];
   (function () { for (var n = 1; n <= 12; n++) { AUDIO_KEYS.push('r' + n); } })();
 
   var SHOUTS = {
@@ -59,6 +59,7 @@
     prepare: 30, rounds: 3, round: 180, rest: 60,
     warn: 10,          // 拍子木を鳴らす残り秒数 (0でOFF)
     beep3: true,       // ラスト3秒のピッ
+    buzz30: false,     // 残り30秒のブザー (ラウンドが30秒より長いときだけ)
     sound: 'gong',     // gong / taiko / both
     voice: true,       // ラウンドコール
     shout: 'fight',    // none / fight / box / hajime
@@ -379,6 +380,34 @@
       tone(1000, c.currentTime + 0.02, 0.1, 'sine', 0.35);
     }
 
+    /* ブザー: のこぎり波を2つ、わずかにずらして重ねた「ブーッ」(減衰せず、鳴らし切って止める) */
+    function buzzTone(f, t, dur, vol) {
+      var o = ctx.createOscillator();
+      var g = ctx.createGain();
+      o.type = 'sawtooth';
+      o.frequency.setValueAtTime(f, t);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(vol, t + 0.01);
+      g.gain.setValueAtTime(vol, t + dur - 0.06);
+      g.gain.linearRampToValueAtTime(0.0001, t + dur);
+      o.connect(g);
+      g.connect(master);
+      o.start(t);
+      o.stop(t + dur + 0.05);
+    }
+
+    /* audio/buzzer.mp3 があればそれを優先 */
+    function buzz() {
+      trace('buzz');
+      var c = ensure();
+      if (!c) { return; }
+      var t = c.currentTime + 0.02;
+      if (!playBuf('buzzer', t, 1)) {
+        buzzTone(233, t, 0.6, 0.22);
+        buzzTone(239, t, 0.6, 0.22);
+      }
+    }
+
     /* --- 声: 録音ファイルがあればそれ、無ければ TTS --- */
     /* 端末に入っている日本語の声を集める */
     var jaVoices = [];
@@ -442,7 +471,7 @@
 
     return {
       unlock: unlock, resumeCtx: resumeCtx, setVol: setVol, preload: preload,
-      startSound: startSound, endSound: endSound, hit: hit, clap: clap, beep: beep, say: say, cancelSpeech: cancelSpeech,
+      startSound: startSound, endSound: endSound, hit: hit, clap: clap, beep: beep, buzz: buzz, say: say, cancelSpeech: cancelSpeech,
       voiceNames: voiceNames, refreshVoices: refreshVoices
     };
   })();
@@ -592,6 +621,11 @@
       if (cfg.warn > 0 && seg.dur > cfg.warn && !f.clap && remaining <= cfg.warn) {
         f.clap = true;
         AudioEngine.clap();
+      }
+      /* 拍子木も30秒に設定しているときは、同時に鳴らさないよう拍子木を優先 */
+      if (cfg.buzz30 && seg.dur > 30 && cfg.warn !== 30 && !f.buzz && remaining <= 30) {
+        f.buzz = true;
+        AudioEngine.buzz();
       }
       if (cfg.beep3 && seg.dur > 5) {
         var k = Math.ceil(remaining);
@@ -784,6 +818,7 @@
     { k: 'rest',    label: '休憩時間',       kind: 'time', min: 0,  max: 599, step: 5 },
     { k: 'warn',    label: '拍子木(残り秒)', kind: 'sec',  min: 0,  max: 60,  step: 5 },
     { k: 'beep3',   label: 'ラスト3秒ピッ',  kind: 'toggle' },
+    { k: 'buzz30',  label: '残り30秒ブザー', kind: 'toggle' },
     { k: 'sound',   label: '合図の音',       kind: 'seg',
       opts: [['gong', 'ゴング'], ['taiko', '太鼓'], ['both', '両方']] },
     { k: 'voice',   label: 'ラウンドコール', kind: 'toggle' },
@@ -948,6 +983,7 @@
       ['ラウンド終了', function () { AudioEngine.endSound(false); }],
       ['試合終了', function () { AudioEngine.endSound(true); }],
       ['拍子木', function () { AudioEngine.clap(); }],
+      ['ブザー', function () { AudioEngine.buzz(); }],
       ['ラウンドコール', function () { var rc = roundCallText(1); AudioEngine.say(rc.key, rc.text); }],
       ['かけ声', function () { shoutStart(); }]
     ].forEach(function (t) {
