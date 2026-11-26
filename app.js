@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.2.0';
+  var VERSION = '1.3.1';
   var STORE_KEY = 'ringtimer.cfg.v1';
 
   /* ================================================================
@@ -46,7 +46,16 @@
     hajime: { label: '始め/やめ', text: '始め', key: 'hajime', endText: 'やめ', endKey: 'yame' }
   };
 
+  /* プリセット。書いてある項目だけ設定が上書きされる (書いてない項目は今の設定のまま) */
+  var PRESET_KEYS = ['prepare', 'rounds', 'round', 'rest', 'warn', 'beep3', 'buzz30', 'sound', 'voice'];
+
   var PRESETS = [
+    { name: 'ヒムカノミット',  prepare: 15, rounds: 2,  round: 180, rest: 45,
+      warn: 10, beep3: false, buzz30: true,  sound: 'gong', voice: true },
+    { name: '２分交互ミット',  prepare: 15, rounds: 20, round: 120, rest: 15,
+      warn: 10, beep3: false, buzz30: true,  sound: 'gong', voice: true },
+    { name: 'BOX HI(i)T',      prepare: 15, rounds: 8,  round: 20,  rest: 10,
+      warn: 10, beep3: false, buzz30: false, sound: 'gong', voice: true },
     { name: 'ボクシング 3分×3',   prepare: 30, rounds: 3, round: 180, rest: 60 },
     { name: 'キック 3分×5',       prepare: 30, rounds: 5, round: 180, rest: 60 },
     { name: 'MMA 5分×3',          prepare: 30, rounds: 3, round: 300, rest: 60 },
@@ -60,6 +69,8 @@
     warn: 10,          // 拍子木を鳴らす残り秒数 (0でOFF)
     beep3: true,       // ラスト3秒のピッ
     buzz30: false,     // 残り30秒のブザー (ラウンドが30秒より長いときだけ)
+    secOut: true,      // セコンドアウトのブザー: 休憩の残り10秒 (休憩が10秒より長いときだけ)
+    keepAwake: true,   // タイマー動作中は画面を消さない
     sound: 'gong',     // gong / taiko / both
     voice: true,       // ラウンドコール
     shout: 'fight',    // none / fight / box / hajime
@@ -555,15 +566,47 @@
     if (timerId !== null) { clearInterval(timerId); timerId = null; }
   }
 
+  /* 画面を点けたままにする (自動ロックで消えないように)
+   *  1) Screen Wake Lock API … iOS 16.4以降のSafari。ホーム画面アプリでは iOS 18.4以降
+   *  2) 保険: 見えない小さな無音動画をループ再生 (NoSleep方式)。古いiOS(iPhone 6など)でも効く
+   */
+  var NOSLEEP_MP4 = 'data:video/mp4;base64,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';
+  var awakeVideo = null;
+
+  function startVideoAwake() {
+    try {
+      if (!awakeVideo) {
+        awakeVideo = document.createElement('video');
+        awakeVideo.setAttribute('playsinline', '');
+        awakeVideo.setAttribute('webkit-playsinline', '');
+        awakeVideo.setAttribute('muted', '');
+        awakeVideo.muted = true;
+        awakeVideo.loop = true;
+        awakeVideo.src = NOSLEEP_MP4;
+        awakeVideo.style.cssText = 'position:fixed;left:0;top:0;width:2px;height:2px;' +
+                                   'opacity:.01;pointer-events:none;z-index:-1;';
+        document.body.appendChild(awakeVideo);
+      }
+      var p = awakeVideo.play();
+      if (p && p.catch) { p.catch(function () {}); }
+    } catch (e) {}
+  }
+  function stopVideoAwake() {
+    try { if (awakeVideo) { awakeVideo.pause(); } } catch (e) {}
+  }
+
   function requestWake() {
+    if (!cfg.keepAwake) { return; }
     try {
       if (navigator.wakeLock && navigator.wakeLock.request) {
         navigator.wakeLock.request('screen').then(function (l) { wakeLock = l; }, function () {});
       }
     } catch (e) {}
+    startVideoAwake();
   }
   function releaseWake() {
     try { if (wakeLock) { wakeLock.release(); wakeLock = null; } } catch (e) {}
+    stopVideoAwake();
   }
 
   /* TTSに数字を渡すと「ラウンドいち」と読むので、英語風にカタカナで渡す */
@@ -611,6 +654,12 @@
       var n = seg.type === 'prepare' ? 1 : seg.round + 1;
       var rc = roundCallText(n);
       AudioEngine.say(rc.key, rc.text);
+    }
+
+    /* セコンドアウト: 休憩の残り10秒にブザー (休憩が10秒以下だと開始と同時になるので鳴らさない) */
+    if (cfg.secOut && seg.type === 'rest' && seg.dur > 10 && !f.secOut && remaining <= 10) {
+      f.secOut = true;
+      AudioEngine.buzz();
     }
 
     if (seg.type === 'round') {
@@ -819,13 +868,15 @@
     { k: 'warn',    label: '拍子木(残り秒)', kind: 'sec',  min: 0,  max: 60,  step: 5 },
     { k: 'beep3',   label: 'ラスト3秒ピッ',  kind: 'toggle' },
     { k: 'buzz30',  label: '残り30秒ブザー', kind: 'toggle' },
+    { k: 'secOut',  label: 'セコンドアウト(休憩10秒前)', kind: 'toggle' },
     { k: 'sound',   label: '合図の音',       kind: 'seg',
       opts: [['gong', 'ゴング'], ['taiko', '太鼓'], ['both', '両方']] },
     { k: 'voice',   label: 'ラウンドコール', kind: 'toggle' },
     { k: 'voiceName', label: '声の種類(仮の読み上げ)', kind: 'voicepick', stack: true },
     { k: 'shout',   label: 'かけ声',         kind: 'seg', stack: true,
       opts: [['none', 'なし'], ['fight', 'ファイト'], ['box', 'ボックス'], ['hajime', '始め/やめ']] },
-    { k: 'vol',     label: '音量',           kind: 'range' }
+    { k: 'vol',     label: '音量',           kind: 'range' },
+    { k: 'keepAwake', label: '動作中は画面を消さない', kind: 'toggle' }
   ];
   var updaters = [];
 
@@ -959,10 +1010,9 @@
     PRESETS.forEach(function (p) {
       var b = h('button', 'chip', p.name);
       b.addEventListener('click', function () {
-        cfg.prepare = p.prepare;
-        cfg.rounds = p.rounds;
-        cfg.round = p.round;
-        cfg.rest = p.rest;
+        for (var i = 0; i < PRESET_KEYS.length; i++) {
+          if (p.hasOwnProperty(PRESET_KEYS[i])) { cfg[PRESET_KEYS[i]] = p[PRESET_KEYS[i]]; }
+        }
         onCfgChanged();
         refreshSheet();
       }, false);
@@ -973,6 +1023,7 @@
     host.appendChild(h('div', 'sec-title', 'タイマー'));
     ROWS.forEach(function (row, idx) {
       if (idx === 5) { host.appendChild(h('div', 'sec-title', '音・声')); }
+      if (row.k === 'keepAwake') { host.appendChild(h('div', 'sec-title', '画面')); }
       host.appendChild(buildRow(row));
     });
 
