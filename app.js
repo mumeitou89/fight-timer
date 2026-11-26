@@ -5,7 +5,7 @@
 (function () {
   'use strict';
 
-  var VERSION = '1.3.1';
+  var VERSION = '1.3.2';
   var STORE_KEY = 'ringtimer.cfg.v1';
 
   /* ================================================================
@@ -36,7 +36,7 @@
    *   audio/r1.mp3 ... r12.mp3 (ラウンドコール) final.mp3 (ファイナルラウンド)
    *   audio/fight.mp3 box.mp3 hajime.mp3 yame.mp3
    */
-  var AUDIO_KEYS = ['gong', 'gong2', 'taiko', 'taiko2', 'clap', 'buzzer', 'final', 'fight', 'box', 'hajime', 'yame'];
+  var AUDIO_KEYS = ['gong', 'gong2', 'taiko', 'taiko2', 'clap', 'buzzer', 'whistle', 'final', 'fight', 'box', 'hajime', 'yame'];
   (function () { for (var n = 1; n <= 12; n++) { AUDIO_KEYS.push('r' + n); } })();
 
   var SHOUTS = {
@@ -69,7 +69,7 @@
     warn: 10,          // 拍子木を鳴らす残り秒数 (0でOFF)
     beep3: true,       // ラスト3秒のピッ
     buzz30: false,     // 残り30秒のブザー (ラウンドが30秒より長いときだけ)
-    secOut: true,      // セコンドアウトのブザー: 休憩の残り10秒 (休憩が10秒より長いときだけ)
+    secOut: true,      // セコンドアウトのホイッスル: 休憩の残り10秒 (休憩が10秒より長いときだけ)
     keepAwake: true,   // タイマー動作中は画面を消さない
     sound: 'gong',     // gong / taiko / both
     voice: true,       // ラウンドコール
@@ -419,6 +419,50 @@
       }
     }
 
+    /* ホイッスル: 高い2つの正弦波をわずかにずらして重ねる(ピーを転がす「ピーーッ」の震えになる) + 息のノイズ */
+    function whistleSynth(t) {
+      var dur = 0.85;
+      var fs = [2950, 2982];
+      for (var i = 0; i < fs.length; i++) {
+        var o = ctx.createOscillator();
+        var g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.setValueAtTime(fs[i] - 120, t);
+        o.frequency.linearRampToValueAtTime(fs[i], t + 0.04);   // 吹き始めに少し音程が上がる
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.linearRampToValueAtTime(0.32, t + 0.03);
+        g.gain.setValueAtTime(0.32, t + dur - 0.1);
+        g.gain.linearRampToValueAtTime(0.0001, t + dur);
+        o.connect(g);
+        g.connect(master);
+        o.start(t);
+        o.stop(t + dur + 0.05);
+      }
+      var s = ctx.createBufferSource();
+      s.buffer = noise;
+      var f = ctx.createBiquadFilter();
+      f.type = 'highpass';
+      f.frequency.value = 3500;
+      var ng = ctx.createGain();
+      ng.gain.setValueAtTime(0.06, t);
+      ng.gain.setValueAtTime(0.06, t + dur - 0.1);
+      ng.gain.linearRampToValueAtTime(0.0001, t + dur);
+      s.connect(f);
+      f.connect(ng);
+      ng.connect(master);
+      s.start(t);
+      s.stop(t + dur + 0.05);
+    }
+
+    /* audio/whistle.mp3 があればそれを優先 */
+    function whistle() {
+      trace('whistle');
+      var c = ensure();
+      if (!c) { return; }
+      var t = c.currentTime + 0.02;
+      if (!playBuf('whistle', t, 1)) { whistleSynth(t); }
+    }
+
     /* --- 声: 録音ファイルがあればそれ、無ければ TTS --- */
     /* 端末に入っている日本語の声を集める */
     var jaVoices = [];
@@ -482,7 +526,7 @@
 
     return {
       unlock: unlock, resumeCtx: resumeCtx, setVol: setVol, preload: preload,
-      startSound: startSound, endSound: endSound, hit: hit, clap: clap, beep: beep, buzz: buzz, say: say, cancelSpeech: cancelSpeech,
+      startSound: startSound, endSound: endSound, hit: hit, clap: clap, beep: beep, buzz: buzz, whistle: whistle, say: say, cancelSpeech: cancelSpeech,
       voiceNames: voiceNames, refreshVoices: refreshVoices
     };
   })();
@@ -656,10 +700,10 @@
       AudioEngine.say(rc.key, rc.text);
     }
 
-    /* セコンドアウト: 休憩の残り10秒にブザー (休憩が10秒以下だと開始と同時になるので鳴らさない) */
+    /* セコンドアウト: 休憩の残り10秒にホイッスル (休憩が10秒以下だと開始と同時になるので鳴らさない) */
     if (cfg.secOut && seg.type === 'rest' && seg.dur > 10 && !f.secOut && remaining <= 10) {
       f.secOut = true;
-      AudioEngine.buzz();
+      AudioEngine.whistle();
     }
 
     if (seg.type === 'round') {
@@ -1035,6 +1079,7 @@
       ['試合終了', function () { AudioEngine.endSound(true); }],
       ['拍子木', function () { AudioEngine.clap(); }],
       ['ブザー', function () { AudioEngine.buzz(); }],
+      ['ホイッスル', function () { AudioEngine.whistle(); }],
       ['ラウンドコール', function () { var rc = roundCallText(1); AudioEngine.say(rc.key, rc.text); }],
       ['かけ声', function () { shoutStart(); }]
     ].forEach(function (t) {
