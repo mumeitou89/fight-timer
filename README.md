@@ -58,7 +58,7 @@ mp3形式で。ファイルを足したら `sw.js` の `CACHE` の番号を上�
 
 - `gong2` / `taiko2` が無いときは、試合終了も `gong` / `taiko` を3回連打して代用する
 - 打ち方は `app.js` の `CONFIG` (`endPattern` / `matchEndStrikes` / `endGap`) で変えられる
-- 同梱の音源は、5つの音量を同じくらい(約 -16 LUFS)にそろえてある
+- 同梱の音源(gong / gong2 / taiko / taiko2 / clap / whistle)は、音量を同じくらい(約 -16 LUFS)にそろえてある
 - 使った音源のサイト名とライセンス(クレジット要否)は、ここに控えておくこと:
   - (未記入)
 
